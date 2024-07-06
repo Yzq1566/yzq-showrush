@@ -1,0 +1,27 @@
+server:
+  port: 8081
+spring:
+  application:
+    name: showrush
+  datasource:
+    driver-class-name: com.mysql.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/showrush?useSSL=false&serverTimezone=UTC
+    username: root
+    password: xxx # 填写你自己的数据库密码
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    # password: xxx # 如果 Redis 设置了密码，取消注释并填写
+    lettuce:
+      pool:
+        max-active: 10
+        max-idle: 10
+        min-idle: 1
+        time-between-eviction-runs: 10s
+  jackson:
+    default-property-inclusion: non_null # 序列化 JSON 时忽略空值字段
+mybatis-plus:
+  type-aliases-package: com.yzq.showrush.entity # 别名扫描包
+logging:
+  level:
+    com.yzq.showrush: debug
