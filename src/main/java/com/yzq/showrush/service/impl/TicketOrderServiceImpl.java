@@ -8,9 +8,10 @@ import com.yzq.showrush.mapper.TicketOrderMapper;
 import com.yzq.showrush.service.ISeckillTicketService;
 import com.yzq.showrush.service.ITicketOrderService;
 import com.yzq.showrush.utils.RedisIdWorker;
-import com.yzq.showrush.utils.SimpleRedisLock;
 import com.yzq.showrush.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +20,7 @@ import javax.annotation.Resource;
 import java.time.LocalDateTime;
 
 /**
- * 秒杀下单服务实现：乐观锁防止超卖，自研 Redis 分布式锁保证一人一单
+ * 秒杀下单服务实现：乐观锁防止超卖，Redisson 分布式锁保证一人一单
  *
  * @author yzq
  * @since 2024-08-03
@@ -33,7 +34,7 @@ public class TicketOrderServiceImpl extends ServiceImpl<TicketOrderMapper, Ticke
     @Resource
     private RedisIdWorker redisIdWorker;
     @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private RedissonClient redissonClient;
 
     @Override
     public Result seckillTicket(Long ticketId) {
@@ -51,10 +52,10 @@ public class TicketOrderServiceImpl extends ServiceImpl<TicketOrderMapper, Ticke
         if (ticket.getStock() < 1) {
             return Result.fail("库存不足");
         }
-        // 5. 按用户维度加分布式锁，保证一人一单
+        // 5. 按用户维度加分布式锁，Redisson 自带看门狗续期，比自研锁更可靠
         Long userId = UserHolder.getUser().getId();
-        SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
-        if (!lock.tryLock(1200)) {
+        RLock lock = redissonClient.getLock("lock:order:" + userId);
+        if (!lock.tryLock()) {
             return Result.fail("请勿重复下单");
         }
         try {
@@ -62,7 +63,7 @@ public class TicketOrderServiceImpl extends ServiceImpl<TicketOrderMapper, Ticke
             ITicketOrderService proxy = (ITicketOrderService) AopContext.currentProxy();
             return proxy.createTicketOrder(ticketId);
         } finally {
-            lock.unLock();
+            lock.unlock();
         }
     }
 
