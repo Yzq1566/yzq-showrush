@@ -46,6 +46,14 @@ public class UserController {
     }
 
     /**
+     * 登出：删除 Redis 中的登录令牌
+     */
+    @PostMapping("/logout")
+    public Result logout(@RequestHeader(value = "authorization", required = false) String token) {
+        return userService.logout(token);
+    }
+
+    /**
      * 当前登录用户信息
      */
     @GetMapping("/me")

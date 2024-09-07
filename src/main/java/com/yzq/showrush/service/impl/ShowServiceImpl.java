@@ -32,12 +32,12 @@ public class ShowServiceImpl extends ServiceImpl<ShowMapper, Show> implements IS
     @Override
     public Result queryById(Long id) {
         // 缓存空值方案防穿透
-        Show show = cacheClient.getWithPassThrouth(
+        Show show = cacheClient.getWithPassThrough(
                 RedisConstants.CACHE_SHOW_KEY, id, Show.class, this::getById,
                 RedisConstants.CACHE_SHOW_TTL, TimeUnit.MINUTES);
 
         // 热点演出可切换为逻辑过期方案（需要提前预热缓存）：
-        // Show show = cacheClient.getWithLocalExpire(
+        // Show show = cacheClient.getWithLogicalExpire(
         //         RedisConstants.CACHE_LOCK_SHOW_KEY, RedisConstants.CACHE_SHOW_KEY, id,
         //         Show.class, this::getById, RedisConstants.CACHE_SHOW_TTL, TimeUnit.MINUTES);
 

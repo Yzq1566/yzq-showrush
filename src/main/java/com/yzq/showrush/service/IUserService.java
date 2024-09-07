@@ -22,4 +22,9 @@ public interface IUserService extends IService<User> {
      * 验证码登录，用户不存在则自动注册
      */
     Result login(LoginFormDTO loginForm);
+
+    /**
+     * 登出，删除登录令牌
+     */
+    Result logout(String token);
 }

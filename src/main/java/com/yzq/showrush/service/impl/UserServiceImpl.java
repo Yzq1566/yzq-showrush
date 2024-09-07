@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.yzq.showrush.dto.LoginFormDTO;
 import com.yzq.showrush.dto.Result;
@@ -82,6 +83,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.expire(RedisConstants.TOKEN_KEY + token, RedisConstants.TOKEN_TTL, TimeUnit.MINUTES);
 
         return Result.ok(token);
+    }
+
+    @Override
+    public Result logout(String token) {
+        if (StrUtil.isNotBlank(token)) {
+            stringRedisTemplate.delete(RedisConstants.TOKEN_KEY + token);
+        }
+        return Result.ok();
     }
 
     private User createUserByPhone(String phone) {

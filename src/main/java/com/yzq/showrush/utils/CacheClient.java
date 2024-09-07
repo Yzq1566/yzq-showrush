@@ -17,7 +17,7 @@ import java.util.function.Function;
  * Redis 缓存工具：封装缓存穿透、逻辑过期重建等常见场景
  *
  * @author yzq
- * @since 2024-07-21
+ * @since 2024-07-20
  */
 @Component
 @Slf4j
@@ -42,7 +42,7 @@ public class CacheClient {
     /**
      * 写入缓存并设置逻辑过期时间（用于热点数据，过期后不删 Key，由后台线程重建）
      */
-    public void setWithLocalExpire(String key, Object value, Long time, TimeUnit timeUnit) {
+    public void setWithLogicalExpire(String key, Object value, Long time, TimeUnit timeUnit) {
         RedisData redisData = new RedisData();
         redisData.setData(value);
         redisData.setExpireTime(LocalDateTime.now().plusSeconds(timeUnit.toSeconds(time)));
@@ -52,7 +52,7 @@ public class CacheClient {
     /**
      * 防穿透查询：命中空值标记直接返回；未命中回源数据库并回填缓存
      */
-    public <T, ID> T getWithPassThrouth(String keyPrefix, ID id, Class<T> type, Function<ID, T> dbFallback, Long time, TimeUnit timeUnit) {
+    public <T, ID> T getWithPassThrough(String keyPrefix, ID id, Class<T> type, Function<ID, T> dbFallback, Long time, TimeUnit timeUnit) {
         String key = keyPrefix + id;
         String json = stringRedisTemplate.opsForValue().get(key);
 
@@ -60,7 +60,7 @@ public class CacheClient {
         if (StrUtil.isNotBlank(json)) {
             return JSONUtil.toBean(json, type);
         }
-        // 命中空值标记，直接返回，避免打到数据库
+        // 命中空值标记（之前缓存过"不存在"），直接返回，避免打到数据库
         if (json != null) {
             return null;
         }
@@ -68,8 +68,9 @@ public class CacheClient {
         // 未命中，回源数据库
         T t = dbFallback.apply(id);
         if (t == null) {
-            // 数据库也不存在：缓存空值标记
+            // 数据库也不存在：缓存空值标记，过期时间设置短一点
             stringRedisTemplate.opsForValue().set(key, "", RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
+            return null;
         }
 
         // 回填缓存
@@ -80,9 +81,10 @@ public class CacheClient {
     /**
      * 逻辑过期查询：数据过期后不阻塞请求，抢到锁的线程提交后台重建任务，本次先返回旧数据
      */
-    public <T, ID> T getWithLocalExpire(String lockKeyPrefix, String keyPrefix, ID id, Class<T> type, Function<ID, T> dbFallback, Long time, TimeUnit timeUnit) {
+    public <T, ID> T getWithLogicalExpire(String lockKeyPrefix, String keyPrefix, ID id, Class<T> type, Function<ID, T> dbFallback, Long time, TimeUnit timeUnit) {
         String key = keyPrefix + id;
         String json = stringRedisTemplate.opsForValue().get(key);
+        // 未命中说明不是预热过的热点数据，直接返回空
         if (StrUtil.isBlank(json)) {
             return null;
         }
@@ -90,17 +92,18 @@ public class CacheClient {
         RedisData redisData = JSONUtil.toBean(json, RedisData.class);
         T t = JSONUtil.toBean((JSONObject) redisData.getData(), type);
         LocalDateTime expireTime = redisData.getExpireTime();
+        // 逻辑上未过期，直接返回
         if (expireTime.isAfter(LocalDateTime.now())) {
             return t;
         }
 
-        // 已过期：抢锁成功则交给后台线程重建
+        // 已过期：抢锁成功则交给后台线程重建，互斥保证只有一个线程回源
         String lockKey = lockKeyPrefix + id;
-        if (trylock(lockKey)) {
+        if (tryLock(lockKey)) {
             CACHE_REBUILD_EXECUTOR.submit(() -> {
                 try {
                     T data = dbFallback.apply(id);
-                    this.setWithLocalExpire(key, data, time, timeUnit);
+                    this.setWithLogicalExpire(key, data, time, timeUnit);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 } finally {
@@ -111,7 +114,7 @@ public class CacheClient {
         return t;
     }
 
-    private boolean trylock(String key) {
+    private boolean tryLock(String key) {
         Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", RedisConstants.CACHE_LOCK_TTL, TimeUnit.SECONDS);
         return Boolean.TRUE.equals(success);
     }
